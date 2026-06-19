@@ -1,15 +1,5 @@
 import { NextResponse } from 'next/server';
-import mysql from 'mysql2/promise';
-
-const pool = mysql.createPool({
-  host: process.env.DB_HOST || 'localhost',
-  port: parseInt(process.env.DB_PORT || '3306'),
-  user: process.env.DB_USER || 'root',
-  password: process.env.DB_PASSWORD || '',
-  database: process.env.DB_NAME || 'moviecloud',
-  waitForConnections: true,
-  connectionLimit: 10,
-});
+import pool from '../../../../db';
 
 const WD_CLOUD_EMAIL = process.env.WD_CLOUD_EMAIL;
 const WD_CLOUD_PASSWORD = process.env.WD_CLOUD_PASSWORD;
@@ -21,11 +11,8 @@ let tokenCache = { accessToken: null, refreshToken: null, expiresAt: 0 };
 let proxyUrlCache = null;
 
 function getMimeType(ext) {
-  const mimeTypes = {
-    '.mkv': 'video/x-matroska', '.mp4': 'video/mp4', '.avi': 'video/x-msvideo',
-    '.wmv': 'video/x-ms-wmv', '.mov': 'video/quicktime', '.webm': 'video/webm',
-  };
-  return mimeTypes[ext] || 'video/mp4';
+  const map = { '.mkv': 'video/x-matroska', '.mp4': 'video/mp4', '.avi': 'video/x-msvideo', '.wmv': 'video/x-ms-wmv', '.mov': 'video/quicktime', '.webm': 'video/webm' };
+  return map[ext] || 'video/mp4';
 }
 
 async function wdAuth() {
@@ -76,21 +63,10 @@ async function getProxyUrl() {
   return proxyUrlCache;
 }
 
-async function wdSearchFiles(query) {
-  const proxyUrl = await getProxyUrl();
-  const tokens = await wdAuth();
-  const res = await fetch(`${proxyUrl}/sdk/v2/filesSearch?query=${encodeURIComponent(query)}&limit=50`, {
-    headers: { Authorization: `Bearer ${tokens.accessToken}` },
-  });
-  if (!res.ok) return [];
-  const data = await res.json();
-  return data.files || [];
-}
-
 async function wdListFiles(parentId) {
   const proxyUrl = await getProxyUrl();
   const tokens = await wdAuth();
-  const res = await fetch(`${proxyUrl}/sdk/v2/filesSearch/parents?ids=${parentId}&limit=500`, {
+  const res = await fetch(`${proxyUrl}/sdk/v2/filesSearch/parents?ids=${parentId}&limit=500&fields=id,name,mimeType,size`, {
     headers: { Authorization: `Bearer ${tokens.accessToken}` },
   });
   if (!res.ok) return [];
@@ -134,43 +110,65 @@ export async function GET(request, { params }) {
 
     const movie = movies[0];
 
-    if (WD_CLOUD_EMAIL && WD_CLOUD_PASSWORD) {
-      const file = await wdFindMovieFile(movie.file_path);
-      if (!file) {
-        return NextResponse.json({ error: 'Movie file not available' }, { status: 503 });
-      }
-
-      const proxyUrl = await getProxyUrl();
-      const tokens = await wdAuth();
-      const range = request.headers.get('range');
-
-      const headers = { Authorization: `Bearer ${tokens.accessToken}` };
-      if (range) headers.Range = range;
-
-      const apiRes = await fetch(`${proxyUrl}/sdk/v3/files/${file.id}/content`, { headers });
-
-      const responseHeaders = {
-        'Content-Type': getMimeType(movie.file_name ? '.' + movie.file_name.split('.').pop() : '.mp4'),
-        'Accept-Ranges': 'bytes',
-        'Cache-Control': 'no-cache',
-      };
-
-      if (apiRes.headers.get('content-length')) {
-        responseHeaders['Content-Length'] = apiRes.headers.get('content-length');
-      }
-      if (apiRes.headers.get('content-range')) {
-        responseHeaders['Content-Range'] = apiRes.headers.get('content-range');
-      }
-
-      return new Response(apiRes.body, {
-        status: range ? 206 : 200,
-        headers: responseHeaders,
-      });
+    if (!WD_CLOUD_EMAIL || !WD_CLOUD_PASSWORD) {
+      return NextResponse.json({ error: 'No storage configured' }, { status: 503 });
     }
 
-    return NextResponse.json({ error: 'No storage configured' }, { status: 503 });
+    const file = await wdFindMovieFile(movie.file_path);
+    if (!file) {
+      return NextResponse.json({ error: 'Movie file not available' }, { status: 503 });
+    }
+
+    const proxyUrl = await getProxyUrl();
+    const tokens = await wdAuth();
+    const range = request.headers.get('range');
+
+    const headers = { Authorization: `Bearer ${tokens.accessToken}` };
+    if (range) headers.Range = range;
+
+    const apiRes = await fetch(`${proxyUrl}/sdk/v3/files/${file.id}/content`, { headers });
+
+    const ext = movie.file_name ? '.' + movie.file_name.split('.').pop() : '.mp4';
+    const responseHeaders = {
+      'Content-Type': getMimeType(ext),
+      'Accept-Ranges': 'bytes',
+      'Cache-Control': 'no-cache',
+    };
+
+    if (apiRes.headers.get('content-length')) responseHeaders['Content-Length'] = apiRes.headers.get('content-length');
+    if (apiRes.headers.get('content-range')) responseHeaders['Content-Range'] = apiRes.headers.get('content-range');
+
+    pool.query('UPDATE movies SET view_count = view_count + 1 WHERE id = ?', [id]).catch(() => {});
+
+    return new Response(apiRes.body, { status: range ? 206 : 200, headers: responseHeaders });
   } catch (error) {
     console.error('Stream error:', error);
     return NextResponse.json({ error: 'Stream failed' }, { status: 500 });
+  }
+}
+
+export async function HEAD(request, { params }) {
+  const { id } = params;
+  try {
+    const [movies] = await pool.query('SELECT * FROM movies WHERE id = ? AND is_active = 1', [id]);
+    if (movies.length === 0) return new NextResponse(null, { status: 404 });
+
+    const movie = movies[0];
+    if (!WD_CLOUD_EMAIL || !WD_CLOUD_PASSWORD) return new NextResponse(null, { status: 503 });
+
+    const file = await wdFindMovieFile(movie.file_path);
+    if (!file) return new NextResponse(null, { status: 503 });
+
+    const ext = movie.file_name ? '.' + movie.file_name.split('.').pop() : '.mp4';
+    return new NextResponse(null, {
+      status: 200,
+      headers: {
+        'Content-Type': getMimeType(ext),
+        'Accept-Ranges': 'bytes',
+        'Content-Length': String(file.size || 0),
+      },
+    });
+  } catch {
+    return new NextResponse(null, { status: 500 });
   }
 }
