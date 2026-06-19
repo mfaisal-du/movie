@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import pool from '../../../../db';
+import pool from '../../../db';
 
 const WD_CLOUD_EMAIL = process.env.WD_CLOUD_EMAIL;
 const WD_CLOUD_PASSWORD = process.env.WD_CLOUD_PASSWORD;

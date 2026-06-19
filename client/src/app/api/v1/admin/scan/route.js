@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import pool from '../../../../db';
+import pool from '../../../db';
 
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin123';
 
