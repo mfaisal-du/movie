@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import pool from '../../../db';
 
+export const dynamic = 'force-dynamic';
+
 const WD_CLOUD_EMAIL = process.env.WD_CLOUD_EMAIL;
 const WD_CLOUD_PASSWORD = process.env.WD_CLOUD_PASSWORD;
 const AUTH0_CLIENT_ID = '9B0Gi617tROKHc2rS95sT1yJzR6MkQDm';

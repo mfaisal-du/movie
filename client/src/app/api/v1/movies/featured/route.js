@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import pool from '../../../db';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET() {
   try {
     const [movies] = await pool.query(

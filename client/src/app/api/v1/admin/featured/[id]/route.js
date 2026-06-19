@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import pool from '../../../../db';
 
+export const dynamic = 'force-dynamic';
+
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin123';
 
 function checkAuth(request) {
