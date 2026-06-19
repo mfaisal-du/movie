@@ -1,0 +1,21 @@
+# Cloudflare Tunnel Configuration for MovieCloud
+# Run: cloudflared tunnel --config cloudflared-config.yml run
+
+tunnel: moviecloud-streaming
+credentials-file: ~/.cloudflared/<TUNNEL-UUID>.json
+
+ingress:
+  # Frontend Next.js app
+  - hostname: moviecloud.yourdomain.com
+    service: http://localhost:3000
+    
+  # Backend API
+  - hostname: api.moviecloud.yourdomain.com
+    service: http://localhost:3001
+    
+  # Catch-all 404
+  - service: http_status:404
+
+# Alternative: Simple config for quick testing
+# ingress:
+#   - service: http://localhost:3000
