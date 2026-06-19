@@ -1,23 +1,32 @@
-﻿const { createServer } = require('http');
+﻿process.env.NODE_ENV = 'production';
+
+const { createServer } = require('http');
 const next = require('next');
 
 const dev = false;
-const hostname = '0.0.0.0';
 const port = parseInt(process.env.PORT || '3000', 10);
 
-const app = next({ dev, hostname, port });
+console.log('> Starting Next.js production server...');
+console.log('> NODE_ENV:', process.env.NODE_ENV);
+console.log('> PORT:', port);
+console.log('> DB_HOST:', process.env.DB_HOST || 'not set');
+
+const app = next({ dev });
 const handle = app.getRequestHandler();
 
 app.prepare().then(() => {
-  createServer(async (req, res) => {
-    try {
-      await handle(req, res);
-    } catch (err) {
-      console.error('Error handling request:', err);
-      res.statusCode = 500;
-      res.end('Internal Server Error');
+  console.log('> Next.js ready, creating HTTP server...');
+  
+  createServer((req, res) => {
+    handle(req, res);
+  }).listen(port, '0.0.0.0', (err) => {
+    if (err) {
+      console.error('> Server error:', err);
+      throw err;
     }
-  }).listen(port, hostname, () => {
-    console.log(`> Ready on http://${hostname}:${port}`);
+    console.log(`> Ready on http://0.0.0.0:${port}`);
   });
+}).catch((err) => {
+  console.error('> Failed to start Next.js:', err);
+  process.exit(1);
 });
